@@ -1,0 +1,190 @@
+name: Daily Random Python Commits
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"   # every 15 mins, off the top of the hour
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  random-commit-engine:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run commit engine
+        run: |
+          mkdir -p generated state
+
+          python <<'PY'
+          import json
+          import os
+          import random
+          import hashlib
+          from datetime import datetime, timezone
+
+          STATE_FILE = "state/commit_state.json"
+          GENERATED_DIR = "generated"
+
+          now = datetime.now(timezone.utc)
+          today = now.strftime("%Y-%m-%d")
+          current_slot = now.strftime("%H:%M")
+
+          os.makedirs("state", exist_ok=True)
+          os.makedirs(GENERATED_DIR, exist_ok=True)
+
+          def load_state():
+              if os.path.exists(STATE_FILE):
+                  with open(STATE_FILE, "r", encoding="utf-8") as f:
+                      return json.load(f)
+              return {
+                  "current_day": None,
+                  "streak_days_completed": 0,
+                  "target_streak_days": random.choice([2, 3, 4, 5]),
+                  "gap_days_remaining": 0,
+                  "today_active": False,
+                  "today_slots": [],
+                  "today_done_slots": [],
+              }
+
+          def save_state(state):
+              with open(STATE_FILE, "w", encoding="utf-8") as f:
+                  json.dump(state, f, indent=2)
+
+          def generate_day_plan(state):
+              # rollover to a new UTC day
+              if state["current_day"] == today:
+                  return state
+
+              # close out previous active day
+              if state["current_day"] is not None and state.get("today_active"):
+                  state["streak_days_completed"] += 1
+                  if state["streak_days_completed"] >= state["target_streak_days"]:
+                      state["gap_days_remaining"] = random.choice([1, 2])
+                      state["streak_days_completed"] = 0
+                      state["target_streak_days"] = random.choice([2, 3, 4, 5])
+
+              # decide whether today is active or a gap day
+              if state["gap_days_remaining"] > 0:
+                  today_active = False
+                  state["gap_days_remaining"] -= 1
+                  slots = []
+              else:
+                  today_active = True
+                  all_slots = [
+                      f"{h:02d}:{m:02d}"
+                      for h in range(24)
+                      for m in (7, 22, 37, 52)
+                  ]
+                  slots = sorted(random.sample(all_slots, 10))
+
+              state["current_day"] = today
+              state["today_active"] = today_active
+              state["today_slots"] = slots
+              state["today_done_slots"] = []
+              return state
+
+          def random_identifier(prefix="v"):
+              return prefix + hashlib.sha1(str(random.random()).encode()).hexdigest()[:8]
+
+          def make_python_file():
+              func_name = random_identifier("fn_")
+              var_name = random_identifier("x_")
+              class_name = random_identifier("C_")
+
+              templates = [
+                  f'''"""Auto-generated module."""
+          def {func_name}(n: int) -> int:
+              total = 0
+              for i in range(n):
+                  total += i * i
+              return total
+
+          if __name__ == "__main__":
+              print({func_name}({random.randint(5, 30)}))
+          ''',
+
+                  f'''"""Auto-generated utility."""
+          def {func_name}(items: list[int]) -> list[int]:
+              return [x for x in items if x % {random.choice([2,3,5])} == 0]
+
+          data = {random.sample(range(1, 100), 8)}
+          print({func_name}(data))
+          ''',
+
+                  f'''class {class_name}:
+              def __init__(self, base: int):
+                  self.base = base
+
+              def compute(self) -> int:
+                  return sum(i + self.base for i in range({random.randint(3, 15)}))
+
+          obj = {class_name}({random.randint(1, 20)})
+          print(obj.compute())
+          ''',
+
+                  f'''from math import sqrt
+
+          def {func_name}({var_name}: int) -> float:
+              return round(sqrt({var_name} * {random.randint(2, 11)}), 4)
+
+          print({func_name}({random.randint(10, 200)}))
+          ''',
+
+                  f'''def {func_name}(text: str) -> dict[str, int]:
+              out = {{}}
+              for ch in text:
+                  out[ch] = out.get(ch, 0) + 1
+              return out
+
+          print({func_name}("{random.choice(["alpha", "github", "python", "actions", "randomcode"])}"))
+          ''',
+              ]
+
+              content = random.choice(templates)
+              ts = now.strftime("%Y%m%d_%H%M%S")
+              filename = f"{GENERATED_DIR}/script_{ts}_{random.randint(1000,9999)}.py"
+              with open(filename, "w", encoding="utf-8") as f:
+                  f.write("# auto-generated by github actions\n")
+                  f.write(f"# utc: {now.isoformat()}\n\n")
+                  f.write(content)
+              return filename
+
+          state = load_state()
+          state = generate_day_plan(state)
+
+          should_commit = (
+              state.get("today_active", False)
+              and current_slot in state.get("today_slots", [])
+              and current_slot not in state.get("today_done_slots", [])
+          )
+
+          if should_commit:
+              created = make_python_file()
+              state["today_done_slots"].append(current_slot)
+              print(f"COMMIT_NOW=1")
+              print(f"CREATED_FILE={created}")
+          else:
+              print("COMMIT_NOW=0")
+
+          save_state(state)
+          PY
+
+      - name: Commit and push if needed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add generated/ state/commit_state.json
+
+          if git diff --cached --quiet; then
+            echo "No commit in this slot."
+            exit 0
+          fi
+
+          git commit -m "auto: random python commit $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          git push
