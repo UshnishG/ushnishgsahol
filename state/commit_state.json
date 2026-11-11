@@ -1,20 +1,20 @@
 {
-  "current_day": "2026-11-10",
-  "streak_days_completed": 1,
+  "current_day": "2026-11-11",
+  "streak_days_completed": 2,
   "target_streak_days": 5,
   "gap_days_remaining": 0,
   "today_active": true,
   "today_slots": [
-    "01:07",
-    "02:52",
-    "06:22",
-    "06:52",
-    "08:07",
-    "09:37",
-    "10:37",
-    "12:07",
-    "18:52",
-    "19:07"
+    "00:52",
+    "03:22",
+    "04:22",
+    "04:37",
+    "13:22",
+    "14:07",
+    "16:52",
+    "18:37",
+    "22:07",
+    "22:37"
   ],
   "today_done_slots": []
 }
